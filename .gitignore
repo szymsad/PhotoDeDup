@@ -1,0 +1,11 @@
+# Baza danych
+*.db
+
+# Foldery build
+dist/
+build/
+
+# PyCharm
+.idea/
+__pycache__/
+*.pyc
