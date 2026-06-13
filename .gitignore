@@ -9,3 +9,5 @@ build/
 .idea/
 __pycache__/
 *.pyc
+/photo_dedup.db-wal
+/photo_dedup.db-shm
