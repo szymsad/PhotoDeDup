@@ -6,6 +6,9 @@ Dwa tryby zaznaczania:
    użytkownik wybiera radio "Zachowaj to" i checkbox "Usuń" per plik.
 2. Wiele grup naraz — checkbox przy każdej grupie na liście,
    przycisk "Usuń duplikaty z zaznaczonych grup" usuwa wszystko za jednym razem.
+
+POPRAWKA: _thumbnails modyfikowane wyłącznie z wątku GUI (przez after()),
+eliminując race condition przy równoczesnym ładowaniu miniaturek.
 """
 
 import os
@@ -21,7 +24,7 @@ from core.scanner import FileResult
 from gui.image_viewer import ImageViewer
 
 
-THUMBNAIL_SIZE = (280, 280)
+THUMBNAIL_SIZE   = (280, 280)
 MAX_GROUPS_IN_LIST = 500
 
 
@@ -31,15 +34,15 @@ class TabDuplicates(ctk.CTkFrame):
         super().__init__(parent, fg_color="transparent", **kwargs)
 
         self._groups:             list[DuplicateGroup] = []
-        self._selected_group_idx: Optional[int] = None
-        self._check_vars:         dict[str, ctk.BooleanVar] = {}   # path → usuń?
-        self._keep_var:           Optional[ctk.StringVar]   = None  # path keepera
+        self._selected_group_idx: Optional[int]        = None
+        self._check_vars:         dict[str, ctk.BooleanVar] = {}
+        self._keep_var:           Optional[ctk.StringVar]   = None
+        # ← POPRAWKA: _thumbnails tylko modyfikowane z wątku GUI
         self._thumbnails:         list = []
         self._on_deleted          = on_deleted_callback
 
-        # checkboxy grup na liście: group_idx → BooleanVar
-        self._group_check_vars:   dict[int, ctk.BooleanVar] = {}
-        self._select_all_var      = ctk.BooleanVar(value=False)
+        self._group_check_vars: dict[int, ctk.BooleanVar] = {}
+        self._select_all_var    = ctk.BooleanVar(value=False)
 
         self.grid_rowconfigure(0, weight=1)
         self.grid_columnconfigure(1, weight=1)
@@ -57,7 +60,6 @@ class TabDuplicates(ctk.CTkFrame):
         panel.grid_columnconfigure(0, weight=1)
         panel.grid_propagate(False)
 
-        # --- nagłówek z filtrem ---
         header = ctk.CTkFrame(panel, fg_color="transparent")
         header.grid(row=0, column=0, sticky="ew", padx=8, pady=(8, 4))
         header.grid_columnconfigure(0, weight=1)
@@ -71,17 +73,16 @@ class TabDuplicates(ctk.CTkFrame):
         filter_frame = ctk.CTkFrame(header, fg_color="transparent")
         filter_frame.grid(row=1, column=0, sticky="w", pady=(4, 0))
         self.filter_var = ctk.StringVar(value="all")
-        for label, val in [("Wszystkie","all"),("Identyczne","exact"),("Podobne","similar")]:
+        for label, val in [("Wszystkie", "all"), ("Identyczne", "exact"), ("Podobne", "similar")]:
             ctk.CTkRadioButton(
                 filter_frame, text=label, value=val,
                 variable=self.filter_var,
                 font=ctk.CTkFont(size=11),
                 command=self._apply_filter
-            ).pack(side="left", padx=(0,8))
+            ).pack(side="left", padx=(0, 8))
 
-        # --- pasek zaznaczania wielu grup ---
-        multi_bar = ctk.CTkFrame(panel, fg_color=("gray85","gray20"))
-        multi_bar.grid(row=1, column=0, sticky="ew", padx=4, pady=(0,4))
+        multi_bar = ctk.CTkFrame(panel, fg_color=("gray85", "gray20"))
+        multi_bar.grid(row=1, column=0, sticky="ew", padx=4, pady=(0, 4))
         multi_bar.grid_columnconfigure(1, weight=1)
 
         self.cb_select_all = ctk.CTkCheckBox(
@@ -103,9 +104,8 @@ class TabDuplicates(ctk.CTkFrame):
         )
         self.btn_delete_multi.grid(row=0, column=1, padx=8, pady=6, sticky="e")
 
-        # --- scrollowana lista ---
         self.groups_scroll = ctk.CTkScrollableFrame(panel)
-        self.groups_scroll.grid(row=2, column=0, sticky="nsew", padx=4, pady=(0,4))
+        self.groups_scroll.grid(row=2, column=0, sticky="nsew", padx=4, pady=(0, 4))
         self.groups_scroll.grid_columnconfigure(0, weight=1)
 
     # ================================================================ panel szczegółów (prawa kolumna)
@@ -117,7 +117,7 @@ class TabDuplicates(ctk.CTkFrame):
         self.detail_panel.grid_columnconfigure(0, weight=1)
 
         action_bar = ctk.CTkFrame(self.detail_panel, height=48)
-        action_bar.grid(row=0, column=0, sticky="ew", pady=(0,8))
+        action_bar.grid(row=0, column=0, sticky="ew", pady=(0, 8))
         action_bar.grid_propagate(False)
 
         self.lbl_group_title = ctk.CTkLabel(
@@ -178,7 +178,7 @@ class TabDuplicates(ctk.CTkFrame):
         if len(indexed_groups) > MAX_GROUPS_IN_LIST:
             ctk.CTkLabel(
                 self.groups_scroll,
-                text=f"… i {len(indexed_groups)-MAX_GROUPS_IN_LIST} więcej",
+                text=f"… i {len(indexed_groups) - MAX_GROUPS_IN_LIST} więcej",
                 text_color="gray", font=ctk.CTkFont(size=11)
             ).grid(row=MAX_GROUPS_IN_LIST, column=0, pady=8)
 
@@ -186,7 +186,6 @@ class TabDuplicates(ctk.CTkFrame):
         type_color = "#2ecc71" if group.group_type == "exact" else "#3498db"
         type_label = "identyczne" if group.group_type == "exact" else "podobne"
 
-        # inicjalizuj BooleanVar dla tej grupy jeśli jeszcze nie ma
         if group_idx not in self._group_check_vars:
             self._group_check_vars[group_idx] = ctk.BooleanVar(value=False)
         group_var = self._group_check_vars[group_idx]
@@ -195,38 +194,34 @@ class TabDuplicates(ctk.CTkFrame):
         frame.grid(row=row_idx, column=0, sticky="ew", padx=4, pady=2)
         frame.grid_columnconfigure(2, weight=1)
 
-        # checkbox grupy
         cb = ctk.CTkCheckBox(
             frame, text="", variable=group_var,
             width=24,
             command=self._on_group_checkbox_changed
         )
-        cb.grid(row=0, column=0, rowspan=2, padx=(6,4), pady=4)
+        cb.grid(row=0, column=0, rowspan=2, padx=(6, 4), pady=4)
 
-        # kolorowy pasek
         bar = ctk.CTkFrame(frame, width=4, fg_color=type_color)
-        bar.grid(row=0, column=1, rowspan=2, sticky="ns", padx=(0,8), pady=4)
+        bar.grid(row=0, column=1, rowspan=2, sticky="ns", padx=(0, 8), pady=4)
         bar.grid_propagate(False)
 
-        # tekst
         keep_name = os.path.basename(group.best.path) if group.best else "?"
         ctk.CTkLabel(
             frame,
             text=f"{len(group.files)} pliki — {type_label}",
             font=ctk.CTkFont(size=12, weight="bold")
-        ).grid(row=0, column=2, sticky="w", padx=(0,8), pady=(6,0))
+        ).grid(row=0, column=2, sticky="w", padx=(0, 8), pady=(6, 0))
 
         ctk.CTkLabel(
             frame,
             text=f"sugestia: {keep_name}  •  {_human_size(group.wasted_bytes)}",
             font=ctk.CTkFont(size=11), text_color="gray"
-        ).grid(row=1, column=2, sticky="w", padx=(0,8), pady=(0,6))
+        ).grid(row=1, column=2, sticky="w", padx=(0, 8), pady=(0, 6))
 
-        # klik w tekst/ramkę otwiera szczegóły
         for widget in (frame, bar):
             widget.bind("<Button-1>", lambda e, idx=group_idx: self._on_group_click(idx))
-        frame.bind("<Enter>", lambda e, f=frame: f.configure(fg_color=("gray85","gray25")))
-        frame.bind("<Leave>", lambda e, f=frame: f.configure(fg_color=("gray80","gray20")))
+        frame.bind("<Enter>", lambda e, f=frame: f.configure(fg_color=("gray85", "gray25")))
+        frame.bind("<Leave>", lambda e, f=frame: f.configure(fg_color=("gray80", "gray20")))
 
     # ================================================================ zaznaczanie wielu grup
 
@@ -237,7 +232,6 @@ class TabDuplicates(ctk.CTkFrame):
         self._refresh_multi_button()
 
     def _on_group_checkbox_changed(self):
-        # synchronizuj "zaznacz wszystkie"
         all_checked = all(v.get() for v in self._group_check_vars.values())
         self._select_all_var.set(all_checked)
         self._refresh_multi_button()
@@ -256,12 +250,10 @@ class TabDuplicates(ctk.CTkFrame):
             )
 
     def _on_delete_multi(self):
-        """Usuwa duplikaty (nie-best) ze wszystkich zaznaczonych grup."""
         checked_indices = [idx for idx, var in self._group_check_vars.items() if var.get()]
         if not checked_indices:
             return
 
-        # zbierz pliki do usunięcia ze wszystkich zaznaczonych grup
         to_delete: list[str] = []
         for idx in checked_indices:
             if idx >= len(self._groups):
@@ -301,7 +293,6 @@ class TabDuplicates(ctk.CTkFrame):
         if self._on_deleted:
             self._on_deleted(deleted)
 
-        # usuń przetworzone grupy z listy
         deleted_set = set(to_delete)
         for idx in sorted(checked_indices, reverse=True):
             if idx < len(self._groups):
@@ -327,9 +318,12 @@ class TabDuplicates(ctk.CTkFrame):
         for w in self.thumbs_scroll.winfo_children():
             w.destroy()
         self._check_vars.clear()
+        # ← POPRAWKA: czyścimy _thumbnails w wątku GUI przed załadowaniem nowych
         self._thumbnails.clear()
 
-        initial_keep = group.best.path if group.best else (group.files[0].path if group.files else "")
+        initial_keep = group.best.path if group.best else (
+            group.files[0].path if group.files else ""
+        )
         self._keep_var = ctk.StringVar(value=initial_keep)
         self._keep_var.trace_add("write", lambda *_: self._on_keep_changed(group))
 
@@ -352,43 +346,50 @@ class TabDuplicates(ctk.CTkFrame):
         card.grid(row=row, column=col, padx=8, pady=8, sticky="nsew")
         self.thumbs_scroll.grid_columnconfigure(col, weight=1)
 
-        # miniaturka
         thumb_label = ctk.CTkLabel(
             card, text="⏳", width=THUMBNAIL_SIZE[0], height=THUMBNAIL_SIZE[1], cursor="hand2"
         )
         thumb_label.pack(pady=(8, 4))
         all_paths = [f.path for f in group.files]
-        idx = group.files.index(file)
+        idx       = group.files.index(file)
         thumb_label.bind("<Button-1>", lambda e, p=all_paths, i=idx: self._open_viewer(p, i))
-        threading.Thread(target=self._load_thumbnail, args=(file.path, thumb_label), daemon=True).start()
 
-        # nazwa
+        threading.Thread(
+            target=self._load_thumbnail,
+            args=(file.path, thumb_label),
+            daemon=True
+        ).start()
+
         fname = os.path.basename(file.path)
         ctk.CTkLabel(
             card,
-            text=fname if len(fname) <= 24 else fname[:21]+"…",
+            text=fname if len(fname) <= 24 else fname[:21] + "…",
             font=ctk.CTkFont(size=11, weight="bold"), wraplength=280
         ).pack(padx=8)
 
-        # info
         res      = f"{file.width}×{file.height}" if file.width else "nieznana"
         date_str = file.exif_date[:10] if file.exif_date else "brak EXIF"
+        # Pokaż model urządzenia jeśli dostępny (przydatne dla iPhone)
+        device_str = file.device_name or ""
+        info_lines = f"{res}  •  {_human_size(file.size)}\n{date_str}"
+        if device_str:
+            info_lines += f"\n{device_str}"
+
         ctk.CTkLabel(
             card,
-            text=f"{res}  •  {_human_size(file.size)}\n{date_str}",
+            text=info_lines,
             font=ctk.CTkFont(size=10), text_color="gray", justify="center"
-        ).pack(padx=8, pady=(2,4))
+        ).pack(padx=8, pady=(2, 4))
 
-        # radio + checkbox
         choice_frame = ctk.CTkFrame(card, fg_color="transparent")
-        choice_frame.pack(padx=8, pady=(2,8))
+        choice_frame.pack(padx=8, pady=(2, 8))
 
         ctk.CTkRadioButton(
             choice_frame, text="Zachowaj to",
             variable=self._keep_var, value=file.path,
             font=ctk.CTkFont(size=11),
             fg_color="#2ecc71", hover_color="#27ae60",
-        ).pack(side="left", padx=(0,8))
+        ).pack(side="left", padx=(0, 8))
 
         delete_var = ctk.BooleanVar(value=(file.path != self._keep_var.get()))
         self._check_vars[file.path] = delete_var
@@ -406,7 +407,7 @@ class TabDuplicates(ctk.CTkFrame):
             ctk.CTkLabel(
                 card, text="★ sugestia algorytmu",
                 font=ctk.CTkFont(size=10), text_color="#f39c12"
-            ).pack(pady=(0,4))
+            ).pack(pady=(0, 4))
 
         def _update_card(*_, f=file, c=card, cv=delete_var, checkbox=cb):
             is_keeper = (self._keep_var.get() == f.path)
@@ -453,7 +454,7 @@ class TabDuplicates(ctk.CTkFrame):
         if not messagebox.askyesno(
             "Potwierdzenie",
             f"Usunąć trwale {len(to_delete)} "
-            f"{'plik' if len(to_delete)==1 else 'pliki' if len(to_delete)<5 else 'plików'}?\n\n"
+            f"{'plik' if len(to_delete) == 1 else 'pliki' if len(to_delete) < 5 else 'plików'}?\n\n"
             f"Zachowany zostanie:\n{os.path.basename(keep_path)}\n\n"
             f"Tej operacji nie można cofnąć.",
             icon="warning"
@@ -475,7 +476,6 @@ class TabDuplicates(ctk.CTkFrame):
         if self._on_deleted:
             self._on_deleted(deleted)
 
-        # usuń pliki z grupy i przejdź do następnej
         if self._selected_group_idx is not None:
             group = self._groups[self._selected_group_idx]
             group.files = [f for f in group.files if f.path not in set(to_delete)]
@@ -510,20 +510,30 @@ class TabDuplicates(ctk.CTkFrame):
     # ================================================================ helpers
 
     def _load_thumbnail(self, path: str, label: ctk.CTkLabel):
+        """
+        Ładuje miniaturkę w wątku roboczym.
+        POPRAWKA: _thumbnails modyfikowane wyłącznie przez after() w wątku GUI.
+        """
         try:
             with Image.open(path) as img:
                 try:
-                    exif = img._getexif()
+                    exif = img.getexif()
                     if exif:
-                        rot = {3:180, 6:270, 8:90}.get(exif.get(274))
+                        rot = {3: 180, 6: 270, 8: 90}.get(exif.get(274))
                         if rot:
                             img = img.rotate(rot, expand=True)
                 except Exception:
                     pass
                 img.thumbnail(THUMBNAIL_SIZE, Image.LANCZOS)
                 photo = ImageTk.PhotoImage(img)
-                self._thumbnails.append(photo)
-                label.after(0, lambda: label.configure(image=photo, text=""))
+
+                # ← POPRAWKA: dodajemy do listy wyłącznie z wątku GUI
+                def _apply(p=photo):
+                    self._thumbnails.append(p)
+                    label.configure(image=p, text="")
+
+                label.after(0, _apply)
+
         except Exception:
             label.after(0, lambda: label.configure(text="brak podglądu"))
 
@@ -542,7 +552,8 @@ class TabDuplicates(ctk.CTkFrame):
 
 
 def _human_size(n: int) -> str:
-    for u in ("B","KB","MB","GB"):
-        if n < 1024: return f"{n:.1f} {u}"
+    for u in ("B", "KB", "MB", "GB"):
+        if n < 1024:
+            return f"{n:.1f} {u}"
         n /= 1024
     return f"{n:.1f} TB"

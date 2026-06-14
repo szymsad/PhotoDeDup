@@ -50,39 +50,79 @@ class TabGroups(ctk.CTkFrame):
     # ================================================================ opcje
 
     def _build_options_bar(self):
-        bar = ctk.CTkFrame(self, height=44)
+        """
+        Pasek opcji z dwoma rzędami radio buttonów — wszystkie kontrolki
+        mieszczą się bez konieczności ręcznego rozszerzania okna.
+
+        Rząd 1: tryby z urządzeniem (4 opcje)
+        Rząd 2: tryby tylko z datą  (3 opcje) + podgląd ścieżki
+        """
+        bar = ctk.CTkFrame(self)
         bar.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 8))
-        bar.grid_propagate(False)
+        bar.grid_columnconfigure(0, weight=1)
 
-        ctk.CTkLabel(bar, text="Struktura folderow:",
-                     font=ctk.CTkFont(size=12)).pack(side="left", padx=(12, 8), pady=8)
+        # --- Rząd 1: z urządzeniem ---
+        row1 = ctk.CTkFrame(bar, fg_color="transparent")
+        row1.grid(row=0, column=0, sticky="ew", padx=12, pady=(8, 2))
 
-        MODES = [
-            ("Urzadzenie",              "device"),
-            ("Urzadzenie / Rok",        "device_year"),
-            ("Urzadzenie / Rok / Mies", "device_month"),
-            ("Urzadzenie / R / M / D",  "device_day"),
-            ("Rok",                     "year"),
-            ("Rok / Miesiac",           "month"),
-            ("Rok / M / Dzien",         "day"),
+        ctk.CTkLabel(
+            row1, text="Z urządzeniem:",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            width=110, anchor="w"
+        ).pack(side="left", padx=(0, 6))
+
+        MODES_DEVICE = [
+            ("Urządzenie",              "device"),
+            ("Urządzenie / Rok",        "device_year"),
+            ("Urządzenie / Rok / Mies", "device_month"),
+            ("Urządzenie / R / M / D",  "device_day"),
         ]
-        for label, val in MODES:
+        for label, val in MODES_DEVICE:
             ctk.CTkRadioButton(
-                bar, text=label, value=val,
+                row1, text=label, value=val,
                 variable=self._folder_mode,
                 font=ctk.CTkFont(size=11),
                 command=self._on_structure_change
-            ).pack(side="left", padx=5, pady=8)
+            ).pack(side="left", padx=(0, 14))
 
+        # --- Rząd 2: tylko data + podgląd ---
+        row2 = ctk.CTkFrame(bar, fg_color="transparent")
+        row2.grid(row=1, column=0, sticky="ew", padx=12, pady=(2, 8))
+
+        ctk.CTkLabel(
+            row2, text="Tylko data:",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            width=110, anchor="w"
+        ).pack(side="left", padx=(0, 6))
+
+        MODES_DATE = [
+            ("Rok",           "year"),
+            ("Rok / Miesiąc", "month"),
+            ("Rok / M / Dzień", "day"),
+        ]
+        for label, val in MODES_DATE:
+            ctk.CTkRadioButton(
+                row2, text=label, value=val,
+                variable=self._folder_mode,
+                font=ctk.CTkFont(size=11),
+                command=self._on_structure_change
+            ).pack(side="left", padx=(0, 14))
+
+        # separator pionowy
+        ctk.CTkFrame(row2, width=1, fg_color="gray50").pack(side="left", fill="y", padx=(4, 12))
+
+        # podgląd ścieżki
         self.lbl_path_preview = ctk.CTkLabel(
-            bar, text="", font=ctk.CTkFont(size=11), text_color="gray"
+            row2, text="",
+            font=ctk.CTkFont(size=11), text_color="gray"
         )
-        self.lbl_path_preview.pack(side="left", padx=12)
+        self.lbl_path_preview.pack(side="left")
+
         self._refresh_path_preview()
 
     def _refresh_path_preview(self):
         self.lbl_path_preview.configure(
-            text=f"  →  {_mode_to_example(self._folder_mode.get())}"
+            text=f"→  {_mode_to_example(self._folder_mode.get())}"
         )
 
     def _on_structure_change(self):
@@ -124,7 +164,7 @@ class TabGroups(ctk.CTkFrame):
         action_bar.grid_columnconfigure(0, weight=1)
 
         self.lbl_group_info = ctk.CTkLabel(
-            action_bar, text="Wybierz grupe z listy",
+            action_bar, text="Wybierz grupę z listy",
             font=ctk.CTkFont(size=12), text_color="gray"
         )
         self.lbl_group_info.grid(row=0, column=0, padx=12, sticky="w")
@@ -133,7 +173,7 @@ class TabGroups(ctk.CTkFrame):
         btn_frame.grid(row=0, column=1, padx=12, sticky="e")
 
         self.btn_copy = ctk.CTkButton(
-            btn_frame, text="Kopiuj do folderow",
+            btn_frame, text="Kopiuj do folderów",
             width=150, height=32,
             fg_color="transparent", border_width=1,
             text_color=("gray10", "gray90"),
@@ -143,7 +183,7 @@ class TabGroups(ctk.CTkFrame):
         self.btn_copy.pack(side="left", padx=(0, 8))
 
         self.btn_move = ctk.CTkButton(
-            btn_frame, text="Przeniesi do folderow",
+            btn_frame, text="Przenieś do folderów",
             width=160, height=32,
             command=lambda: self._on_organize(copy=False),
             state="disabled"
@@ -163,9 +203,9 @@ class TabGroups(ctk.CTkFrame):
         self.file_tree.heading("nr",            text="#")
         self.file_tree.heading("nazwa",         text="Nazwa pliku")
         self.file_tree.heading("rozmiar",       text="Rozmiar")
-        self.file_tree.heading("rozdzielczosc", text="Rozdzielczosc")
+        self.file_tree.heading("rozdzielczosc", text="Rozdzielczość")
         self.file_tree.heading("data",          text="Data")
-        self.file_tree.heading("zrodlo",        text="Zrodlo daty")
+        self.file_tree.heading("zrodlo",        text="Źródło daty")
         self.file_tree.column("nr",            width=36,  minwidth=30,  stretch=False)
         self.file_tree.column("nazwa",         width=260, minwidth=120, stretch=True)
         self.file_tree.column("rozmiar",       width=80,  minwidth=60,  stretch=False)
@@ -203,7 +243,7 @@ class TabGroups(ctk.CTkFrame):
 
         total_files = sum(len(g.files) for g in self._groups)
         self.lbl_tree_header.configure(
-            text=f"{len(self._groups)} grup  •  {total_files} plikow"
+            text=f"{len(self._groups)} grup  •  {total_files} plików"
         )
 
         seen_devices = []
@@ -256,11 +296,10 @@ class TabGroups(ctk.CTkFrame):
         return row
 
     def _edit_device_name(self, device: str, label: ctk.CTkLabel):
-        """Okno dialogowe do edycji aliasu nazwy urzadzenia/folderu."""
         current = self._device_aliases.get(device, device)
 
         dialog = ctk.CTkToplevel(self)
-        dialog.title("Zmien nazwe folderu")
+        dialog.title("Zmień nazwę folderu")
         dialog.geometry("420x165")
         dialog.resizable(False, False)
         dialog.grab_set()
@@ -307,7 +346,7 @@ class TabGroups(ctk.CTkFrame):
         btn_frame.pack(padx=16, fill="x")
 
         ctk.CTkButton(
-            btn_frame, text="Przywroc oryginal", width=150, height=30,
+            btn_frame, text="Przywróć oryginał", width=150, height=30,
             fg_color="transparent", border_width=1,
             text_color=("gray10", "gray90"),
             command=_reset
@@ -325,7 +364,7 @@ class TabGroups(ctk.CTkFrame):
         parts = []
         if group.year:  parts.append(group.label_year)
         if group.month: parts.append(group.label_month)
-        if group.day:   parts.append(f"dzien {group.label_day}")
+        if group.day:   parts.append(f"dzień {group.label_day}")
         label = " / ".join(parts) if parts else "Nieznana data"
 
         frame = ctk.CTkFrame(self.tree_scroll, cursor="hand2", fg_color="transparent")
@@ -340,9 +379,9 @@ class TabGroups(ctk.CTkFrame):
         ).grid(row=0, column=1, padx=10, sticky="e")
 
         frame.bind("<Button-1>", lambda e, g=group: self._on_group_click(g))
-        frame.bind("<Enter>",    lambda e, f=frame: f.configure(fg_color=("gray85","gray25")))
+        frame.bind("<Enter>",    lambda e, f=frame: f.configure(fg_color=("gray85", "gray25")))
         frame.bind("<Leave>",    lambda e, f=frame, g=group: f.configure(
-            fg_color=("gray75","gray30") if self._selected_group is g else "transparent"
+            fg_color=("gray75", "gray30") if self._selected_group is g else "transparent"
         ))
         for child in frame.winfo_children():
             child.bind("<Button-1>", lambda e, g=group: self._on_group_click(g))
@@ -359,8 +398,8 @@ class TabGroups(ctk.CTkFrame):
         size_human = _human_size(group.size_bytes)
         sources    = ", ".join(f"{s}:{c}" for s, c in sorted(group.date_sources.items()))
         self.lbl_group_info.configure(
-            text=f"{group.label}  •  {len(group.files)} plikow  •  {size_human}  •  daty: {sources}",
-            text_color=("gray10","gray90")
+            text=f"{group.label}  •  {len(group.files)} plików  •  {size_human}  •  daty: {sources}",
+            text_color=("gray10", "gray90")
         )
         self.btn_copy.configure(state="normal")
         self.btn_move.configure(state="normal")
@@ -390,14 +429,14 @@ class TabGroups(ctk.CTkFrame):
             return
 
         use_device, depth = self._get_mode_params()
-        action = "Kopiowanie" if copy else "Przenoszenie"
-        total  = sum(len(g.files) for g in self._groups)
+        action  = "Kopiowanie" if copy else "Przenoszenie"
+        total   = sum(len(g.files) for g in self._groups)
         preview = self._build_preview(use_device, depth)
 
         if not messagebox.askyesno(
             "Potwierdzenie",
-            f"{action} {total} plikow do:\n{dest}\n\n"
-            f"Przykladowa struktura:\n{preview}\n\nKontynuowac?",
+            f"{action} {total} plików do:\n{dest}\n\n"
+            f"Przykładowa struktura:\n{preview}\n\nKontynuować?",
         ):
             return
 
@@ -417,7 +456,7 @@ class TabGroups(ctk.CTkFrame):
                 lines.append(f"  {path}{os.sep}")
                 seen.add(path)
         if len(self._groups) > 4:
-            lines.append(f"  ... i {len(self._groups)-4} wiecej")
+            lines.append(f"  ... i {len(self._groups) - 4} więcej")
         return "\n".join(lines)
 
     def _do_organize(self, dest: str, copy: bool, use_device: bool, depth: str):
@@ -435,7 +474,7 @@ class TabGroups(ctk.CTkFrame):
             try:
                 os.makedirs(target_dir, exist_ok=True)
             except Exception as e:
-                errors.append(f"Blad tworzenia folderu '{raw_folder}': {e}")
+                errors.append(f"Błąd tworzenia folderu '{raw_folder}': {e}")
                 continue
 
             for f in group.files:
@@ -451,9 +490,9 @@ class TabGroups(ctk.CTkFrame):
                     errors.append(f"{fname}: {e}")
 
         action = "Skopiowano" if copy else "Przeniesiono"
-        msg = f"{action} {moved} plikow."
+        msg    = f"{action} {moved} plików."
         if errors:
-            msg += f"\nBledy ({len(errors)}):\n" + "\n".join(errors[:5])
+            msg += f"\nBłędy ({len(errors)}):\n" + "\n".join(errors[:5])
         self.after(0, lambda: messagebox.showinfo("Gotowe", msg))
 
 

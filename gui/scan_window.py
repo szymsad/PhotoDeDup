@@ -1,6 +1,10 @@
 """
 scan_window.py — osobne okno pokazywane podczas skanowania.
 Mozna je minimalizowac. Zamyka sie samo po zakonczeniu.
+
+POPRAWKA: wszystkie metody publiczne sprawdzają czy widget nie został
+zniszczony przed aktualizacją — chroni przed błędami gdy użytkownik
+zamknie okno zanim skanowanie się skończy.
 """
 
 import customtkinter as ctk
@@ -9,7 +13,7 @@ from tkinter import ttk
 
 class ScanWindow(ctk.CTkToplevel):
     """
-    Okno postepuo skanowania.
+    Okno postepu skanowania.
 
     Uzycie:
         win = ScanWindow(parent)
@@ -26,18 +30,17 @@ class ScanWindow(ctk.CTkToplevel):
         self.geometry("520x340")
         self.resizable(False, False)
 
-        # NIE robimy grab_set() — okno jest niezalezne, mozna klikac glowne okno
         self.protocol("WM_DELETE_WINDOW", self._on_close_btn)
 
-        self._on_cancel = on_cancel
-        self._cancelled = False
-        self._finished  = False
+        self._on_cancel  = on_cancel
+        self._cancelled  = False
+        self._finished   = False
+        self._destroyed  = False   # ← POPRAWKA: flaga zniszczenia
 
         self._build_ui()
         self._force_focus()
 
     def _force_focus(self):
-        """Wymusza pojawienie sie okna na wierzchu na Windows."""
         self.after(50, lambda: (
             self.attributes("-topmost", True),
             self.after(200, lambda: self.attributes("-topmost", False)),
@@ -51,7 +54,6 @@ class ScanWindow(ctk.CTkToplevel):
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(2, weight=1)
 
-        # --- naglowek ---
         header = ctk.CTkFrame(self, fg_color="transparent")
         header.grid(row=0, column=0, sticky="ew", padx=20, pady=(20, 8))
         header.grid_columnconfigure(0, weight=1)
@@ -69,12 +71,10 @@ class ScanWindow(ctk.CTkToplevel):
         )
         self.lbl_counter.grid(row=1, column=0, sticky="w")
 
-        # --- pasek postepu ---
         self.progress = ctk.CTkProgressBar(self, height=12)
         self.progress.set(0)
         self.progress.grid(row=1, column=0, sticky="ew", padx=20, pady=(0, 12))
 
-        # --- log (ostatnie operacje) ---
         self.log_box = ctk.CTkTextbox(
             self,
             state="disabled",
@@ -84,7 +84,6 @@ class ScanWindow(ctk.CTkToplevel):
         )
         self.log_box.grid(row=2, column=0, sticky="nsew", padx=20, pady=(0, 12))
 
-        # --- przyciski ---
         btn_frame = ctk.CTkFrame(self, fg_color="transparent")
         btn_frame.grid(row=3, column=0, padx=20, pady=(0, 20), sticky="ew")
         btn_frame.grid_columnconfigure(0, weight=1)
@@ -107,9 +106,18 @@ class ScanWindow(ctk.CTkToplevel):
 
     # ================================================================ publiczne API
 
+    def _is_alive(self) -> bool:
+        """Sprawdza czy okno nadal istnieje — guard przed TclError."""
+        if self._destroyed:
+            return False
+        try:
+            return self.winfo_exists()
+        except Exception:
+            return False
+
     def update_progress(self, current: int, total: int, current_file: str):
         """Wywolywane z watku skanowania przez after()."""
-        if self._finished:
+        if not self._is_alive() or self._finished:
             return
 
         pct = current / total if total else 0
@@ -117,10 +125,8 @@ class ScanWindow(ctk.CTkToplevel):
         self.lbl_counter.configure(text=f"{current} / {total}  ({pct*100:.0f}%)")
         self.lbl_title.configure(text="Skanowanie folderu...")
 
-        # dodaj do logu (max 200 linii)
         self.log_box.configure(state="normal")
         self.log_box.insert("end", f"{current_file}\n")
-        # przytnij jesli za dlugi
         lines = int(self.log_box.index("end-1c").split(".")[0])
         if lines > 200:
             self.log_box.delete("1.0", "50.0")
@@ -129,6 +135,8 @@ class ScanWindow(ctk.CTkToplevel):
 
     def log_error(self, path: str, msg: str):
         """Wyswietla blad w logu."""
+        if not self._is_alive():
+            return
         self.log_box.configure(state="normal")
         self.log_box.insert("end", f"  BLAD: {path} — {msg}\n")
         self.log_box.see("end")
@@ -136,19 +144,25 @@ class ScanWindow(ctk.CTkToplevel):
 
     def set_phase(self, text: str):
         """Zmienia naglowek fazy — np. 'Szukam duplikatow...'"""
+        if not self._is_alive():
+            return
         self.lbl_title.configure(text=text)
         self.lbl_status.configure(text=text)
 
     def finish(self, total: int, errors: int = 0):
         """Wywolaj po zakonczeniu skanowania."""
+        if not self._is_alive():
+            return
         self._finished = True
         self.progress.set(1.0)
         self.lbl_counter.configure(text=f"{total} plikow przeskanowanych")
         self.lbl_title.configure(text="Skanowanie zakonczone")
         status = f"Gotowe. Bledow: {errors}" if errors else "Gotowe."
         self.lbl_status.configure(text=status, text_color="green")
-        self.btn_cancel.configure(text="Zamknij", fg_color="gray40", hover_color="gray30",
-                                  command=self.destroy)
+        self.btn_cancel.configure(
+            text="Zamknij", fg_color="gray40", hover_color="gray30",
+            command=self.destroy
+        )
 
     # ================================================================ wewnetrzne
 
@@ -163,8 +177,12 @@ class ScanWindow(ctk.CTkToplevel):
             self._on_cancel()
 
     def _on_close_btn(self):
-        """X na oknie — jesli trwa skanowanie, anuluj."""
         if not self._finished:
             self._do_cancel()
         else:
             self.destroy()
+
+    def destroy(self):
+        """Override destroy() żeby ustawić flagę przed niszczeniem widgetów."""
+        self._destroyed = True
+        super().destroy()
