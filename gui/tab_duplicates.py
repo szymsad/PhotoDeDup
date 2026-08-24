@@ -25,7 +25,7 @@ from gui.image_viewer import ImageViewer
 
 
 THUMBNAIL_SIZE   = (280, 280)
-MAX_GROUPS_IN_LIST = 5000
+MAX_GROUPS_IN_LIST = 500
 
 
 class TabDuplicates(ctk.CTkFrame):
@@ -42,6 +42,7 @@ class TabDuplicates(ctk.CTkFrame):
         self._on_deleted          = on_deleted_callback
 
         self._group_check_vars: dict[int, ctk.BooleanVar] = {}
+        self._filtered_group_indices: list[int] = []
         self._select_all_var    = ctk.BooleanVar(value=False)
 
         self.grid_rowconfigure(0, weight=1)
@@ -154,6 +155,7 @@ class TabDuplicates(ctk.CTkFrame):
             (i, g) for i, g in enumerate(self._groups)
             if f == "all" or g.group_type == f
         ]
+        self._filtered_group_indices = [i for i, _ in filtered]
         self._render_group_list(filtered)
 
     def _render_group_list(self, indexed_groups: list):
@@ -170,7 +172,13 @@ class TabDuplicates(ctk.CTkFrame):
                 text="Brak grup dla tego filtra.",
                 text_color="gray", font=ctk.CTkFont(size=12)
             ).grid(row=0, column=0, pady=20)
+            self._sync_select_all_checkbox()
+            self._refresh_multi_button()
             return
+
+        for group_idx, _ in indexed_groups:
+            if group_idx not in self._group_check_vars:
+                self._group_check_vars[group_idx] = ctk.BooleanVar(value=False)
 
         for row_idx, (group_idx, group) in enumerate(indexed_groups[:MAX_GROUPS_IN_LIST]):
             self._add_group_row(row_idx, group_idx, group)
@@ -178,9 +186,15 @@ class TabDuplicates(ctk.CTkFrame):
         if len(indexed_groups) > MAX_GROUPS_IN_LIST:
             ctk.CTkLabel(
                 self.groups_scroll,
-                text=f"… i {len(indexed_groups) - MAX_GROUPS_IN_LIST} więcej",
+                text=(
+                    f"… i {len(indexed_groups) - MAX_GROUPS_IN_LIST} więcej "
+                    f"(niewidoczne na liście, ale objęte przez \"Zaznacz wszystkie\")"
+                ),
                 text_color="gray", font=ctk.CTkFont(size=11)
             ).grid(row=MAX_GROUPS_IN_LIST, column=0, pady=8)
+
+        self._sync_select_all_checkbox()
+        self._refresh_multi_button()
 
     def _add_group_row(self, row_idx: int, group_idx: int, group: DuplicateGroup):
         type_color = "#2ecc71" if group.group_type == "exact" else "#3498db"
@@ -227,17 +241,32 @@ class TabDuplicates(ctk.CTkFrame):
 
     def _on_select_all(self):
         val = self._select_all_var.get()
-        for var in self._group_check_vars.values():
+        for idx in self._filtered_group_indices:
+            var = self._group_check_vars.get(idx)
+            if var is None:
+                var = ctk.BooleanVar(value=False)
+                self._group_check_vars[idx] = var
             var.set(val)
         self._refresh_multi_button()
 
     def _on_group_checkbox_changed(self):
-        all_checked = all(v.get() for v in self._group_check_vars.values())
-        self._select_all_var.set(all_checked)
+        self._sync_select_all_checkbox()
         self._refresh_multi_button()
 
+    def _sync_select_all_checkbox(self):
+        """Ustawia stan checkboxa 'Zaznacz wszystkie' wg grup w aktualnym filtrze."""
+        filtered_vars = [
+            self._group_check_vars[idx] for idx in self._filtered_group_indices
+            if idx in self._group_check_vars
+        ]
+        all_checked = bool(filtered_vars) and all(v.get() for v in filtered_vars)
+        self._select_all_var.set(all_checked)
+
     def _refresh_multi_button(self):
-        checked = sum(1 for v in self._group_check_vars.values() if v.get())
+        checked = sum(
+            1 for idx in self._filtered_group_indices
+            if idx in self._group_check_vars and self._group_check_vars[idx].get()
+        )
         if checked:
             self.btn_delete_multi.configure(
                 text=f"Usuń duplikaty z {checked} grup",
@@ -250,7 +279,10 @@ class TabDuplicates(ctk.CTkFrame):
             )
 
     def _on_delete_multi(self):
-        checked_indices = [idx for idx, var in self._group_check_vars.items() if var.get()]
+        checked_indices = [
+            idx for idx in self._filtered_group_indices
+            if idx in self._group_check_vars and self._group_check_vars[idx].get()
+        ]
         if not checked_indices:
             return
 
@@ -294,12 +326,16 @@ class TabDuplicates(ctk.CTkFrame):
             self._on_deleted(deleted)
 
         deleted_set = set(to_delete)
-        for idx in sorted(checked_indices, reverse=True):
-            if idx < len(self._groups):
-                group = self._groups[idx]
+        checked_set = set(checked_indices)
+        survivors: list[DuplicateGroup] = []
+        for idx, group in enumerate(self._groups):
+            if idx in checked_set:
                 group.files = [f for f in group.files if f.path not in deleted_set]
-                if len(group.files) < 2:
-                    self._groups.pop(idx)
+                if len(group.files) >= 2:
+                    survivors.append(group)
+            else:
+                survivors.append(group)
+        self._groups = survivors
 
         self._group_check_vars.clear()
         self._select_all_var.set(False)
