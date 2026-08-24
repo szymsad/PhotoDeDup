@@ -25,7 +25,7 @@ from gui.image_viewer import ImageViewer
 
 
 THUMBNAIL_SIZE   = (280, 280)
-MAX_GROUPS_IN_LIST = 500
+MAX_GROUPS_IN_LIST = 5000
 
 
 class TabDuplicates(ctk.CTkFrame):

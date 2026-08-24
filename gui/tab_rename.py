@@ -350,4 +350,4 @@ class TabRename(ctk.CTkFrame):
         self.log_box.configure(state="normal")
         self.log_box.delete("1.0", "end")
         self.log_box.configure(state="disabled")
-        self.lbl_summary.configure(text="")
+        self.lbl_summary.configure(text=""),
